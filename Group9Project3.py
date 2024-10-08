@@ -16,7 +16,6 @@ def build_linalg(room_width, room_height, bc, mesh_size, gamma_type, gamma_temp_
 
     Nx = int(room_width / mesh_size)
     Ny = int(room_height / mesh_size)
-    print(f'Nx is {Nx}, Ny is {Ny}')
     for j in range(Nx):
         for k in range(Ny):
             N = Nx * Ny
@@ -43,7 +42,6 @@ def get_index(j, k, Ny):
 
 def apply_bc(j, k, row, rhs, diag, bc, gamma_type, gamma_temp_1, gamma_temp_3, Ny, mesh_size):
     bound = bc(j, k, mesh_size)
-    # print(bound)
     if bound == 'interior':
         row[get_index(j, k, Ny)] = 1
     elif bound == 'heater':
@@ -61,13 +59,14 @@ def apply_bc(j, k, row, rhs, diag, bc, gamma_type, gamma_temp_1, gamma_temp_3, N
             if bound == 'gamma_1': rhs -= gamma_temp_1[max(0,j-1)]
             if bound == 'gamma_3': rhs -= gamma_temp_3[max(0,j-1)]
         elif gamma_type == 'Neumann':
+            # want in the rhs -= u_NC (which is some sort of flux) * mesh_size
             diag += 1
 
     return row, rhs, diag
 
 def solve_linalg(room_width, room_height, bc, mesh_size, gamma_type, gamma_temp_1 = None, gamma_temp_3 = None):
     A, b = build_linalg(room_width, room_height, bc, mesh_size, gamma_type, gamma_temp_1, gamma_temp_3)
-    # print(A)
+
     sol = np.linalg.solve(A, b)
     Nx = int(room_width / mesh_size)
     Ny = int(room_height / mesh_size)
@@ -101,10 +100,13 @@ if __name__ == '__main__':
     def bc_1(x, y, mesh_size):
         if x < 0:
             return 'heater'
+
         if y < 0 or y >= 1/mesh_size:
             return 'wall'
+
         if x >= 1/mesh_size:
             return 'gamma_1'
+
         return 'interior'
 
     def bc_2(x, y, mesh_size):
@@ -169,9 +171,12 @@ if __name__ == '__main__':
             comm.send(room_3[:,0],dest=1, tag=32)
 
         if iteration == 0:
-            room_1_old = room_1
-            room_2_old = room_2
-            room_3_old = room_3
+            if rank == 1:
+                room_2_old = room_2
+            if rank == 0:
+                room_1_old = room_1
+            if rank == 2:
+                room_3_old = room_3
             continue
 
         # Relax
@@ -181,7 +186,8 @@ if __name__ == '__main__':
             room_1 = omega * room_1 + (1 - omega) * room_1_old
         elif rank == 2:
             room_3 = omega * room_3 + (1 - omega) * room_3_old
-    #
+
+
     # s = solve_linalg(Nx1, Ny1, bc_1, 1/20, 'Neumann')
     # plt.imshow(s, cmap='plasma')
     # plt.title('Room 1')
