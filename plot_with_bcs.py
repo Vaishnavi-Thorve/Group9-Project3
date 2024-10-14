@@ -10,8 +10,8 @@ class Room:
         self.boundary_condition = boundary_condition
         self.title = title
         self.adjacent_rooms = {}  # Dictionary to hold adjacent rooms
-        # self.temperature = np.full(self.dimension, 15)  # Initialize room temperature array with wall temp 15
-        self.boundary_mask = np.full(self.dimension + 2, 15) # Initialize room temperature array with wall temp
+        self.temperature = np.zeros(self.dimension)  # Initialize room temperature array with 0
+        self.boundary_mask = np.full((self.dimension[0] + 2, self.dimension[1] + 2), 15) # Initialize room temperature array with wall temp
         self.boundary_temperatures = {'heater': 40, 'window': 5}  # Dictionary for boundary conditions
         
         self.apply_boundary_conditions()  # Apply boundary conditions during initialization
@@ -27,13 +27,13 @@ class Room:
             # Apply boundary conditions to the temperature array based on the wall direction
             match i:
                 case 'left':
-                    self.temperature[:, 0] = boundary_temperature  # Apply to the left boundary (1st column)
+                    self.boundary_mask[:, 0] = boundary_temperature  # Apply to the left boundary (1st column)
                 case 'right':
-                    self.temperature[:, -1] = boundary_temperature  # Apply to the right boundary (last column)
+                    self.boundary_mask[:, -1] = boundary_temperature  # Apply to the right boundary (last column)
                 case 'top':
-                    self.temperature[0, :] = boundary_temperature  # Apply to the top boundary (1st row)
+                    self.boundary_mask[0, :] = boundary_temperature  # Apply to the top boundary (1st row)
                 case 'bottom':
-                    self.temperature[-1, :] = boundary_temperature  # Apply to the bottom boundary (last row)
+                    self.boundary_mask[-1, :] = boundary_temperature  # Apply to the bottom boundary (last row)
 
 class Apartment:
     def __init__(self):
@@ -61,9 +61,9 @@ class Dirichlet_Neumann:
                     print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
                     print(f'\nIteration {i}: Solving for room "{room.title}" with rank {self.rank}')
                     self.send_data(room, temperature_grid)
-                    u = self.receive_data(room, temperature_grid, dx)
+                    u = self.receive_data(room, temperature_grid, self.dx)
                     print(f'The u received from iteration {i} is {u}')
-                    sol = solve_linalg(u, self.dx)
+                    sol = solve_linalg(room.boundary_mask, u, self.dx)          # might be an issue here
                     sol_relax = self.omega * sol + (1 - self.omega) * sol
                     print(f'The sol_relax for iteration {i} is {sol_relax}')
             
@@ -98,95 +98,87 @@ class Dirichlet_Neumann:
             
             if gamma_type == 'Dirichlet':
                 if direction == 'right':
-                    temperature_grid[:, -1] = sol_new[:, 0]
+                    room.boundary_mask[:, -1] = sol_new[:, 0]                   # need to think about this
 
                 elif direction == 'left':
-                    temperature_grid[:, 0] = sol_new[:, -1]
+                    room.boundary_mask[:, 0] = sol_new[:, -1]
 
             if gamma_type == 'Neumann':
                 if direction == 'right':
                     flux = (sol_new[:, -1] - sol_new[:, 0] )/ dx
-                    temperature_grid [:, -1] = temperature_grid[:,-1] + flux * dx
+                    room.boundary_mask[:, -1] = temperature_grid[:,-1] + flux * dx
 
                 elif direction == 'left':
                     flux = (sol_new[:, 0] - sol_new[:, -1])/ dx
-                    temperature_grid [:, 0] = temperature_grid[:, 0] + flux * dx
+                    room.boundary_mask[:, 0] = temperature_grid[:, 0] + flux * dx
+                                                            
+        return temperature_grid                                                 # we technically don't need to return this as we can just overwrite the class attribute, no? Or should we also return the boundary mask
 
-        return temperature_grid
 
-
-def build_linalg(temperature_grid, Nx, Ny, dx):
+def build_linalg(boundary_mask, Nx, Ny, dx):
     N = Nx * Ny  # Total number of elements
     coeff = 1 / dx**2
     A = []
     b = []
     
+    '''
     # Create a mask for the boundary
-    boundary_mask = np.zeros((Nx, Ny), dtype=bool)
-    boundary_mask[0, :] = True
-    boundary_mask[-1, :] = True
-    boundary_mask[:, 0] = True
-    boundary_mask[:, -1] = True
+    boundary_cond = np.zeros((Nx+1, Ny+1), dtype=bool)
+    boundary_cond[0, :] = True
+    boundary_cond[-1, :] = True
+    boundary_cond[:, 0] = True
+    boundary_cond[:, -1] = True
     # boundary_indices = np.flatnonzero(boundary_mask)
-
-    rhs = 0
+    '''
+    
     row = np.zeros(N)
+    rhs = 0
 
-    for j in range(1, Nx-1):
-        for k in range(1, Ny-1):
-
-            if boundary_mask[j - 1, k]: rhs -= temperature_grid[j - 1, k]
+    for j in range(Nx):
+        for k in range(Ny):
+            # check sourrounding pixels and if they are outside the mask just take the boundary condition stored in boundary_mask
+            if j-1 < 0: rhs -= boundary_mask[0, k]
+            else: row[get_index(j-1, k, Ny)] = 1
+            
+            if j+1 >= Nx: rhs -= boundary_mask[-1, k]
+            else: row[get_index(j+1, k, Ny)] = 1
+            
+            if k-1 < 0: rhs -= boundary_mask[j, 0]
+            else: row[get_index(j, k-1, Ny)] = Room1
+            
+            if k+1 >= Ny: rhs -= boundary_mask[j, -1]
+            else: row[get_index(j, k+1, Ny)]
+        
+            '''
+            if boundary_cond[j - 1, k]: rhs -= boundary_mask[0, k]
             else: row[get_index(j-1, k, Ny)] = 1
 
-            if boundary_mask[j + 1, k]: rhs -= temperature_grid[j + 1, k]
+            if boundary_cond[j + 1, k]: rhs -= boundary_mask[-1, k]
             else: row[get_index(j+1, k, Ny)] = 1
 
-            if boundary_mask[j, k - 1]: rhs -= temperature_grid[j, k - 1]
+            if boundary_cond[j, k - 1]: rhs -= boundary_mask[j, 0]
             else: row[get_index(j, k-1, Ny)] = 1
 
-            if boundary_mask[j, k + 1]: rhs -= temperature_grid[j, k + 1]
+            if boundary_mask[j, k + 1]: rhs -= boundary_mask[j, -1]
             else: row[get_index(j, k+1, Ny)] = 1
+            '''
+            
+            row[get_index(j, k, Ny)] = -4
+            
+            A.append(row)
+            b.append(rhs)
 
-        row[get_index(j, k, Ny)] = -4
-        A.append(row)
-        b.append(rhs)
-
-    return np.array(A), np.array(b) # Maybe we need to add the coefficient stuff  from the previous implementation
-
-    '''
-    b = np.zeros(N)
-    b[boundary_indices] = u.flatten()[boundary_indices]  # Flattening u to get a 1D array
-
-    for i in range(N):
-        # Diagonal value
-        A[i, i] = -4
-        
-        # Upper diagonal
-        if i + 1 < N and (i + 1) % m != 0:
-            A[i, i + 1] = 1
-
-        # Lower diagonal
-        if i - 1 >= 0 and i % m != 0:
-            A[i, i - 1] = 1
-
-        if i + m < N:
-            A[i, i + m] = 1
-
-        if i - m >= 0:
-            A[i, i - m] = 1
-    
-    return csr_matrix(coeff * A), b
-    '''
+    return np.array(A), np.array(b) # Maybe we need to add the coefficient stuff from the previous implementation
 
 def get_index(j, k, Ny):
     return j * Ny + k
 
-def solve_linalg(temperature_grid, dx):
+def solve_linalg(boundary_mask, temperature_grid, dx):
     shape = temperature_grid.shape
     print(f'Shape of the temperature_grid is: {shape}')
     n, m = shape
 
-    A, b = build_linalg(temperature_grid, n, m, dx)
+    A, b = build_linalg(boundary_mask, n, m, dx)
     sol = sp.linalg.spsolve(A, b).reshape((n, m))
     return sol
 
