@@ -41,17 +41,6 @@ class Apartment:
     def add_room(self, room):
         self.rooms.append(room)
 
-    def display_rooms(self):
-        for room in self.rooms:
-            print(f"Room with dimensions: {room.dimension}")
-            print(f"Temperature grid:\n{room.temperature}\n")
-            
-            for direction, info in room.adjacent_rooms.items():
-                adjacent_room = info['room']
-                boundary_positions = info['boundary_positions']
-                print(f"Adjacent room on {direction}: {adjacent_room.dimension}")
-                print(f"Boundary positions: Start: {boundary_positions['start']}, End: {boundary_positions['end']}")
-            print()
 
 class Dirichlet_Neumann:
     def __init__(self, rooms, dx, comm, rank, num_iterations=10, omega=0.8):
@@ -59,50 +48,71 @@ class Dirichlet_Neumann:
         self.dx = dx
         self.comm = comm
         self.rank = rank
+        self.num_iterations = num_iterations
+        self.omega = omega
         self.temperature_values = [room.temperature for room in self.rooms]  
 
     def solve(self):
-        for i, room in enumerate(self.rooms):
-            temperature_grid = self.temperature_values[i]
-            self.send_data(room, temperature_grid)
-            u = self.receive_data(room, temperature_grid, dx)
-            
-            sol = solve_linalg(u, self.dx)
-            sol_relax = self.omega * sol + (1 - self.omega) * sol
+        for num in range (self.num_iterations):
+            for i, room in enumerate(self.rooms):
+                if self.rank == i:
+                    temperature_grid = self.temperature_values[i]
+                    print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
+                    print(f'\nIteration {i}: Solving for room "{room.title}" with rank {self.rank}')
+                    self.send_data(room, temperature_grid)
+                    u = self.receive_data(room, temperature_grid, dx)
+                    print(f'The u received from iteration {i} is {u}')
+                    sol = solve_linalg(u, self.dx)
+                    sol_relax = self.omega * sol + (1 - self.omega) * sol
+                    print(f'The sol_relax for iteration {i} is {sol_relax}')
             
         return sol_relax
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
             adjacent_rank = info['rank']
+            #print(f'The adjacent_rank received in the send data is: {adjacent_rank}')
+            
+           
             if direction == 'right':
-                self.comm.send(temperature_grid[:, -1], dest = int(adjacent_rank),  tag = self.rank)
+                print(f'Rank {self.rank} sending right to rank {adjacent_rank}')
+                print(f'The elements sent to right with temperature_grid is: {temperature_grid[:, -1]}')
+                self.comm.send(temperature_grid[:, -1], dest = adjacent_rank,  tag = 100 + self.rank)
             if direction == 'left':
-                self.comm.send(temperature_grid[:, 0], dest = int(adjacent_rank), tag = self.rank)
+                print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
+                print(f'The elements sent to left with temperature_grid is: {temperature_grid[:, 0]}')
+                self.comm.send(temperature_grid[:, 0], dest = adjacent_rank, tag = 100 + self.rank)
                 
     def receive_data(self, room, temperature_grid, dx):
         for direction, info in room.adjacent_rooms.items():
             gamma_type = info['gamma_type']
             adjacent_rank = info['rank']
-            sol_new = self.comm.recv(source = adjacent_rank, tag = 20 + self.rank)
+            print(f'Rank {self.rank} waiting to receive from rank {adjacent_rank} on direction {direction}')
+        
+            try:
+                sol_new = self.comm.recv(source=adjacent_rank, tag=100 + adjacent_rank)
+                print(f'The elements in sol_new of recv data is: {sol_new}')
+                print(f"Rank {self.rank} received data from rank {adjacent_rank}")
+            except Exception as e:
+                print(f"Error receiving data on rank {self.rank}: {e}")
             
             if gamma_type == 'Dirichlet':
                 if direction == 'right':
                     temperature_grid[:, -1] = sol_new
-                    u = temperature_grid[:, -1]
+                    
                 elif direction == 'left':
                     temperature_grid[:, 0] = sol_new
-                    u = temperature_grid[:, 0]
+                    
             if gamma_type == 'Neumann':
                 if direction == 'right':
                     flux = (temperature_grid[:, -2] - temperature_grid[:, -1] )/ dx
                     temperature_grid [:, -1] = flux
-                    u = temperature_grid [:, -1]
+                    
                 elif direction == 'left':
                     flux = (temperature_grid[:,1] - temperature_grid[:, 0])/ dx
                     temperature_grid [:, 0] = flux
-                    u = temperature_grid [:, 0]
-        return u   
+                    
+        return temperature_grid   
 
 
 def build_linalg(u, n, m, dx):
@@ -143,7 +153,9 @@ def build_linalg(u, n, m, dx):
 
 def solve_linalg(temperature_grid, dx):
     shape = temperature_grid.shape
+    print(f'Shape of the temperature_grid is: {shape}')
     n, m = shape
+    
     A, b = build_linalg(temperature_grid, n, m, dx)
     sol = sp.linalg.spsolve(A, b).reshape((n, m))
     return sol
@@ -156,10 +168,10 @@ if __name__ == '__main__':
     Room3 = Room(dimension=[int(1/dx), int(1/dx)], boundary_condition={'right': 'heater'}, title='Room3')
 
     # Define adjacent rooms
-    Room1.add_adjacent_room("right", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = '1')
-    Room2.add_adjacent_room("left", Room1, boundary_positions={'start': (int(1/dx)), 'end': (int(2/dx) + 1)}, gamma_type = 'Dirichlet', rank = '0')
-    Room2.add_adjacent_room("right", Room3, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Dirichlet', rank = '2')
-    Room3.add_adjacent_room("left", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = '1')
+    Room1.add_adjacent_room("right", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = 1)
+    Room2.add_adjacent_room("left", Room1, boundary_positions={'start': (int(1/dx)), 'end': (int(2/dx) + 1)}, gamma_type = 'Dirichlet', rank = 0)
+    Room2.add_adjacent_room("right", Room3, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Dirichlet', rank =2)
+    Room3.add_adjacent_room("left", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = 1)
 
     # Create an apartment and add rooms
     apartment = Apartment()
@@ -167,8 +179,6 @@ if __name__ == '__main__':
     apartment.add_room(Room2)
     apartment.add_room(Room3)
 
-    # Display all rooms in the apartment
-    apartment.display_rooms()
 
     # Solve the system of equations and display results
     #solver = Dirichlet_Neumann(apartment.rooms, dx)
@@ -178,9 +188,8 @@ if __name__ == '__main__':
     solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank)
     val = solver.solve()
     plt.imshow(val, cmap='plasma')
-    
     plt.colorbar(label='Temperature')
-    plt.show()
+    plt.savefig('temperature.png')
     MPI.Finalize
     
     
