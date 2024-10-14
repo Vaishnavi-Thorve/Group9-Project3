@@ -45,8 +45,10 @@ class Dirichlet_Neumann():
         return sol_relax
     
     def send_data(self, temperature_grid, adjacents):
-        for direction, info in adjacents.items():
-            adjacent_room, boundary_positions, gamma_type, adjacent_rank = info
+        for adj_info in adjacents:
+            direction = adj_info['direction']
+            boundary_positions = adj_info['boundary_positions']
+            adjacent_rank = adj_info['adjacent_rank']
             start = boundary_positions['start']
             end = boundary_positions['end']
             #print(f'The adjacent_rank received in the send data is: {adjacent_rank}')
@@ -62,8 +64,11 @@ class Dirichlet_Neumann():
                 self.comm.send(temperature_grid[start:end, :1], dest = adjacent_rank, tag = 100 + self.rank)
     
     def receive_data(self, temperature_grid, adjacents):
-        for direction, info in adjacents.items():
-            adjacent_room, boundary_positions, gamma_type, adjacent_rank = info
+        for adj_info in adjacents:
+            direction = adj_info['direction']
+            boundary_positions = adj_info['boundary_positions']
+            gamma_type = adj_info['gamma_type']
+            adjacent_rank = adj_info['adjacent_rank']
             start = boundary_positions['start']
             end = boundary_positions['end']
             
@@ -193,10 +198,29 @@ if __name__ == '__main__':
 
     # Dictionary of room dimensions and boundary conditions (using unique names for each room)
     room = {
-    'Room1': [(1, 1), bc_1, {'right': ('Room2', {'start': 0, 'end': int(1/dx)}, 'Neumann', 1)}],  # Room1 with adjacent Room2 on the right
-    'Room2': [(1, 2), bc_2, {'left': ('Room1', {'start': 0, 'end': int(1/dx)}, 'Dirichlet', 0), 'right': ('Room3', {'start': 0, 'end': int(1/dx)}, 'Dirichlet', 2)}],  # Room2 with Room1 on the left and Room3 on the right
-    'Room3': [(1, 1), bc_3, {'left': ('Room2', {'start': 0, 'end': int(1/dx)}, 'Neumann', 1)}]  # Room3 with Room2 on the left
-}
+     'Room1': [
+         (1, 1), 
+         bc_1, [
+             {'direction': 'right', 'adjacent_room': 'Room2', 'boundary_positions': {'start': 0, 'end': int(1/dx)}, 'gamma_type': 'Neumann', 'adjacent_rank': 1}
+         ]
+     ],
+     'Room2': [
+         (1, 2), 
+         bc_2, [
+             {'direction': 'left', 'adjacent_room': 'Room1', 'boundary_positions': {'start': int(1/dx), 'end': int(2/dx)}, 'gamma_type': 'Dirichlet', 'adjacent_rank': 0},
+             {'direction': 'right', 'adjacent_room': 'Room3', 'boundary_positions': {'start': 0, 'end': int(1/dx)}, 'gamma_type': 'Dirichlet', 'adjacent_rank': 2}
+         ]
+     ],
+     'Room3': [
+         (1, 1), 
+         bc_3, [
+             {'direction': 'left', 'adjacent_room': 'Room2', 'boundary_positions': {'start': 0, 'end': int(1/dx)}, 'gamma_type': 'Neumann', 'adjacent_rank': 1}
+         ]
+     ]
+     
+ }
+   
+
 
     # Instantiate the solver
     solver = Dirichlet_Neumann(room, dx, comm, rank)
