@@ -1,92 +1,72 @@
 from mpi4py import MPI
 import numpy as np
-import scipy.sparse as sp
-from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 
-class Room:
-    def __init__(self, dimension, boundary_condition, title):
-        self.dimension = dimension
-        self.boundary_condition = boundary_condition
-        self.title = title
-        self.adjacent_rooms = {}  # Dictionary to hold adjacent rooms
-        self.temperature = np.full(self.dimension, 15)  # Initialize room temperature array with zeros
-        self.boundary_temperatures = {'heater': 40, 'window': 5}  # Dictionary for boundary conditions
-        
-        self.apply_boundary_conditions()  # Apply boundary conditions during initialization
-
-    def add_adjacent_room(self, direction, room, boundary_positions, gamma_type:None, rank: None):
-        self.adjacent_rooms[direction] = {'room': room, 'boundary_positions': boundary_positions, 'gamma_type': gamma_type, 'rank': rank}
-
-    def apply_boundary_conditions(self):
-        for i, condition in self.boundary_condition.items():
-            # Get the numerical boundary temperature, like 40 for 'heater' or 5 for 'window'
-            boundary_temperature = self.boundary_temperatures.get(condition)
-            
-            # Apply boundary conditions to the temperature array based on the wall direction
-            match i:
-                case 'left':
-                    self.temperature[:, 0] = boundary_temperature  # Apply to the left boundary (1st column)
-                case 'right':
-                    self.temperature[:, -1] = boundary_temperature  # Apply to the right boundary (last column)
-                case 'top':
-                    self.temperature[0, :] = boundary_temperature  # Apply to the top boundary (1st row)
-                case 'bottom':
-                    self.temperature[-1, :] = boundary_temperature  # Apply to the bottom boundary (last row)
-
-class Apartment:
-    def __init__(self):
-        self.rooms = []
-
-    def add_room(self, room):
-        self.rooms.append(room)
-
-
-class Dirichlet_Neumann:
-    def __init__(self, rooms, dx, comm, rank, num_iterations=10, omega=0.8):
-        self.rooms = rooms
-        self.dx = dx
+class Dirichlet_Neumann():
+    def __init__(self, room, mesh_size, comm, rank, num_iterations=10, omega=0.8):
+        self.mesh_size = mesh_size
+        self.room = room
         self.comm = comm
         self.rank = rank
         self.num_iterations = num_iterations
         self.omega = omega
-        self.temperature_values = [room.temperature for room in self.rooms]  
-
+        self.temperature_values = []
+        
+        # Loop through room dimensions and boundary conditions to build linear system for each room
+        for (room_name, room_info) in self.room.items():
+            room_dim, bc, adjacents = room_info
+            room_width, room_height = room_dim
+            _, b = build_linalg(room_width, room_height, bc, self.mesh_size)
+            B = np.array(b)
+            
+            # Reshape temperature values into a 2D array
+            Nx = int(room_width / self.mesh_size)
+            Ny = int(room_height / self.mesh_size)
+            B_reshaped = B.reshape(Ny, Nx)
+            
+            self.temperature_values.append(B_reshaped)
+        print(f'Temperature values stored are: {self.temperature_values}')
+            
     def solve(self):
-        for num in range (self.num_iterations):
-            for i, room in enumerate(self.rooms):
+        for num in range(self.num_iterations):
+            for i, (room_name, room_info) in enumerate(self.room.items()):
+                room_dim, bc, adjacents = room_info
+                room_width, room_height = room_dim
                 if self.rank == i:
+                    room_dim, bc, adjacents = room_info
                     temperature_grid = self.temperature_values[i]
-                    print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
-                    print(f'\nIteration {i}: Solving for room "{room.title}" with rank {self.rank}')
-                    self.send_data(room, temperature_grid)
-                    u = self.receive_data(room, temperature_grid, dx)
+                    self.send_data(temperature_grid, adjacents)
+                    u = self.receive_data(temperature_grid, adjacents)
                     print(f'The u received from iteration {i} is {u}')
-                    sol = solve_linalg(u, self.dx)
+                    sol = solve_linalg(room_width, room_height, bc, self.mesh_size)
                     sol_relax = self.omega * sol + (1 - self.omega) * sol
                     print(f'The sol_relax for iteration {i} is {sol_relax}')
-            
+                
         return sol_relax
-            
-    def send_data(self, room, temperature_grid):
-        for direction, info in room.adjacent_rooms.items():
-            adjacent_rank = info['rank']
+    
+    def send_data(self, temperature_grid, adjacents):
+        for direction, info in adjacents.items():
+            adjacent_room, boundary_positions, gamma_type, adjacent_rank = info
+            start = boundary_positions['start']
+            end = boundary_positions['end']
             #print(f'The adjacent_rank received in the send data is: {adjacent_rank}')
             
            
             if direction == 'right':
                 print(f'Rank {self.rank} sending right to rank {adjacent_rank}')
                 print(f'The elements sent to right with temperature_grid is: {temperature_grid[:, -1]}')
-                self.comm.send(temperature_grid[:, -1], dest = adjacent_rank,  tag = 100 + self.rank)
-            if direction == 'left':
+                self.comm.send(temperature_grid[start:end, -2:], dest = adjacent_rank,  tag = 100 + self.rank)
+            elif direction == 'left':
                 print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
                 print(f'The elements sent to left with temperature_grid is: {temperature_grid[:, 0]}')
-                self.comm.send(temperature_grid[:, 0], dest = adjacent_rank, tag = 100 + self.rank)
-                
-    def receive_data(self, room, temperature_grid, dx):
-        for direction, info in room.adjacent_rooms.items():
-            gamma_type = info['gamma_type']
-            adjacent_rank = info['rank']
+                self.comm.send(temperature_grid[start:end, :1], dest = adjacent_rank, tag = 100 + self.rank)
+    
+    def receive_data(self, temperature_grid, adjacents):
+        for direction, info in adjacents.items():
+            adjacent_room, boundary_positions, gamma_type, adjacent_rank = info
+            start = boundary_positions['start']
+            end = boundary_positions['end']
+            
             print(f'Rank {self.rank} waiting to receive from rank {adjacent_rank} on direction {direction}')
         
             try:
@@ -98,99 +78,142 @@ class Dirichlet_Neumann:
             
             if gamma_type == 'Dirichlet':
                 if direction == 'right':
-                    temperature_grid[:, -1] = sol_new
+                    temperature_grid[start:end, -1] = sol_new[:, 0]
                     
                 elif direction == 'left':
-                    temperature_grid[:, 0] = sol_new
+                    temperature_grid[start:end, 0] = sol_new[:, -1]
                     
             if gamma_type == 'Neumann':
                 if direction == 'right':
-                    flux = (temperature_grid[:, -2] - temperature_grid[:, -1] )/ dx
-                    temperature_grid [:, -1] = flux
+                    flux = (sol_new[:, -1] - sol_new[:, 0] )/ self.mesh_size
+                    temperature_grid [start:end, -1] = temperature_grid[start:end, -1] + flux * self.mesh_size
                     
                 elif direction == 'left':
-                    flux = (temperature_grid[:,1] - temperature_grid[:, 0])/ dx
-                    temperature_grid [:, 0] = flux
+                    flux = (sol_new[:,0] - sol_new[:, -1])/ self.mesh_size
+                    temperature_grid [start:end, 0] = temperature_grid [start:end, 0] + flux * self.mesh_size
                     
-        return temperature_grid   
-
-
-def build_linalg(u, n, m, dx):
-    N = n * m  # Total number of elements
-    coeff = 1 / dx**2
-    A = np.zeros((N, N))
+        return temperature_grid
     
-    # Create a mask for the boundary
-    boundary_mask = np.zeros((n, m), dtype=bool)
-    boundary_mask[0, :] = True
-    boundary_mask[-1, :] = True
-    boundary_mask[:, 0] = True
-    boundary_mask[:, -1] = True
-    boundary_indices = np.flatnonzero(boundary_mask)
+                    
+
+
+def build_linalg(room_width, room_height, bc, mesh_size):
+    A = []
+    b = []
+
+    Nx = int(room_width / mesh_size)
+    Ny = int(room_height / mesh_size)
     
-    b = np.zeros(N)
-    b[boundary_indices] = u.flatten()[boundary_indices]  # Flattening u to get a 1D array
+    for j in range(Nx):
+        for k in range(Ny):
+            N = Nx * Ny
+            row = np.zeros(N)
+            rhs = 0
+            diag = -4
 
-    for i in range(N):
-        # Diagonal value
-        A[i, i] = -4
-        
-        # Upper diagonal
-        if i + 1 < N and (i + 1) % m != 0:
-            A[i, i + 1] = 1
+            row, rhs, diag = apply_bc(j-1, k, row, rhs, diag, bc, Ny, mesh_size)
+            row, rhs, diag = apply_bc(j+1, k, row, rhs, diag, bc, Ny, mesh_size)
+            row, rhs, diag = apply_bc(j, k-1, row, rhs, diag, bc, Ny, mesh_size)
+            row, rhs, diag = apply_bc(j, k+1, row, rhs, diag, bc, Ny, mesh_size)
 
-        # Lower diagonal
-        if i - 1 >= 0 and i % m != 0:
-            A[i, i - 1] = 1
-
-        if i + m < N:
-            A[i, i + m] = 1
-
-        if i - m >= 0:
-            A[i, i - m] = 1
-
-    return csr_matrix(coeff * A), b
-
-def solve_linalg(temperature_grid, dx):
-    shape = temperature_grid.shape
-    print(f'Shape of the temperature_grid is: {shape}')
-    n, m = shape
+            row[get_index(j, k, Ny)] = diag
+            A.append(row)
+            b.append(rhs)
     
-    A, b = build_linalg(temperature_grid, n, m, dx)
-    sol = sp.linalg.spsolve(A, b).reshape((n, m))
+    print(f'The array A is: {np.array(A)}')
+    print(f'The array B is: {np.array(b).reshape(Ny, Nx)}')
+    return np.array(A), np.array(b)
+
+
+def get_index(j, k, Ny):
+    return j * Ny + k
+
+
+def apply_bc(j, k, row, rhs, diag, bc, Ny, mesh_size):
+    bound = bc(j, k, mesh_size)
+    if bound == 'interior':
+        row[get_index(j, k, Ny)] = 1
+    elif bound == 'heater':
+        rhs -= 40
+    elif bound == 'window':
+        rhs -= 5
+    elif bound == 'wall':
+        rhs -= 15
+    return row, rhs, diag
+
+def solve_linalg(room_width, room_height, bc, mesh_size):
+    A, b = build_linalg(room_width, room_height, bc, mesh_size)
+    sol = np.linalg.solve(A, b)
+    Nx = int(room_width / mesh_size)
+    Ny = int(room_height / mesh_size)
+    sol = np.rot90(sol.reshape(Nx, Ny), k=1, axes=(0,1))
     return sol
 
+
+# MPI Initialization
 if __name__ == '__main__':
-    # Create rooms with boundary conditions
-    dx = 1 / 3
-    Room1 = Room(dimension=[int(1/dx), int(1/dx)], boundary_condition={'left': 'heater'}, title='Room1')
-    Room2 = Room(dimension=[int(2/dx), int(1/dx)], boundary_condition={'top': 'heater', 'bottom': 'window'}, title='Room2')
-    Room3 = Room(dimension=[int(1/dx), int(1/dx)], boundary_condition={'right': 'heater'}, title='Room3')
+    dx = 1 / 20
 
-    # Define adjacent rooms
-    Room1.add_adjacent_room("right", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = 1)
-    Room2.add_adjacent_room("left", Room1, boundary_positions={'start': (int(1/dx)), 'end': (int(2/dx) + 1)}, gamma_type = 'Dirichlet', rank = 0)
-    Room2.add_adjacent_room("right", Room3, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Dirichlet', rank =2)
-    Room3.add_adjacent_room("left", Room2, boundary_positions={'start': 0, 'end': (int(1/dx) + 1)}, gamma_type = 'Neumann', rank = 1)
-
-    # Create an apartment and add rooms
-    apartment = Apartment()
-    apartment.add_room(Room1)
-    apartment.add_room(Room2)
-    apartment.add_room(Room3)
-
-
-    # Solve the system of equations and display results
-    #solver = Dirichlet_Neumann(apartment.rooms, dx)
-    #solver.solve()
+    # Initialize MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank)
-    val = solver.solve()
-    plt.imshow(val, cmap='plasma')
-    plt.colorbar(label='Temperature')
-    plt.savefig('temperature.png')
-    MPI.Finalize
-    
-    
+    size = comm.Get_size()
 
+    # Boundary conditions for each room
+    def bc_1(x, y, mesh_size):
+        if x < 0:
+            return 'heater'
+        if y < 0 or y >= 1/mesh_size:
+            return 'wall'
+        if x >= 1/mesh_size:
+            return 'gamma_1'
+        return 'interior'
+
+    def bc_2(x, y, mesh_size):
+        if y < 0:
+            return 'window'
+        if x > 1 and y < 1/mesh_size or x < 0 and y >= 1/mesh_size:
+            return 'wall'
+        if x >= 1/mesh_size and y >= 1/mesh_size:
+            return 'gamma_3'
+        if x < 0 and y < 1/mesh_size:
+            return 'gamma_1'
+        if y >= 2/mesh_size:
+            return 'heater'
+        return 'interior'
+
+    def bc_3(x, y, mesh_size):
+        if x >= 1/mesh_size:
+            return 'heater'
+        if y < 0 or y >= 1/mesh_size:
+            return 'wall'
+        if x < 0:
+            return 'gamma_3'
+        return 'interior'
+
+    # Dictionary of room dimensions and boundary conditions (using unique names for each room)
+    room = {
+    'Room1': [(1, 1), bc_1, {'right': ('Room2', {'start': 0, 'end': int(1/dx)}, 'Neumann', 1)}],  # Room1 with adjacent Room2 on the right
+    'Room2': [(1, 2), bc_2, {'left': ('Room1', {'start': 0, 'end': int(1/dx)}, 'Dirichlet', 0), 'right': ('Room3', {'start': 0, 'end': int(1/dx)}, 'Dirichlet', 2)}],  # Room2 with Room1 on the left and Room3 on the right
+    'Room3': [(1, 1), bc_3, {'left': ('Room2', {'start': 0, 'end': int(1/dx)}, 'Neumann', 1)}]  # Room3 with Room2 on the left
+}
+
+    # Instantiate the solver
+    solver = Dirichlet_Neumann(room, dx, comm, rank)
+    val = solver.solve()
+    all_vals = comm.gather(val, root=0)
+
+    if rank == 0:
+        for i in range(len(all_vals)):
+            val_i = all_vals[i]
+            print(f'Shape of temperature distribution for Room {i + 1}: {val_i.shape}')
+            plt.imshow(val_i, cmap='plasma')
+            plt.colorbar(label='Temperature')
+            plt.title(f'Temperature Distribution in Room {i + 1}')
+            plt.xlabel('X Position')
+            plt.ylabel('Y Position')
+            plt.savefig(f'Room_{i + 1}_temperature.png')
+            plt.clf()  # Clear the figure 
+    
+    
+       
