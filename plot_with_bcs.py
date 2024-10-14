@@ -10,7 +10,8 @@ class Room:
         self.boundary_condition = boundary_condition
         self.title = title
         self.adjacent_rooms = {}  # Dictionary to hold adjacent rooms
-        self.temperature = np.full(self.dimension, 15)  # Initialize room temperature array with wall temp 15
+        # self.temperature = np.full(self.dimension, 15)  # Initialize room temperature array with wall temp 15
+        self.boundary_mask = np.full(self.dimension + 2, 15) # Initialize room temperature array with wall temp
         self.boundary_temperatures = {'heater': 40, 'window': 5}  # Dictionary for boundary conditions
         
         self.apply_boundary_conditions()  # Apply boundary conditions during initialization
