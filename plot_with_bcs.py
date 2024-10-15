@@ -77,7 +77,7 @@ class Dirichlet_Neumann:
                     self.send_data(room, temperature_grid)
                     print(f'The u received from iteration {i} is {u}')
                 else: pass
-        return sol_relax
+        return locals().get('sol_relax', None)
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
