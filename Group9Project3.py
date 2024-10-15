@@ -32,7 +32,7 @@ def build_linalg(room_width, room_height, bc, mesh_size, gamma_type, gamma_temp_
             row[get_index(j,k,Ny)] = diag
             A.append(row)
             b.append(rhs)
-
+    print(b)
     return np.array(A), np.array(b)
 
 
