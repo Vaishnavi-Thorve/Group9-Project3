@@ -77,7 +77,7 @@ class Dirichlet_Neumann:
                     self.send_data(room, temperature_grid)
                     print(f'The u received from iteration {i} is {u}')
                 else: pass
-        return sol_relax
+        return locals().get('sol_relax', None)
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
@@ -141,7 +141,6 @@ class Dirichlet_Neumann:
 
 def build_linalg(boundary_mask, Nx, Ny, dx):
     N = Nx * Ny  # Total number of elements
-    coeff = 1 / dx**2
     A = []
     b = []
     
@@ -314,24 +313,24 @@ if __name__ == '__main__':
 
         # Create a GridSpec with 2 rows and 3 columns
         # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both)
-        gs = fig.add_gridspec(2, 3, width_ratios=[1, 2, 1], height_ratios=[1, 1])
+        gs = fig.add_gridspec(2, 3, width_ratios=[1, 2, 1], height_ratios=[1, 1], wspace=0, hspace=0)
         print('We are plotting')
 
         # Plot Room 1 (bottom-left)
         ax1 = fig.add_subplot(gs[1, 0])
-        ax1.imshow(matrix1, cmap='plasma')
+        ax1.imshow(matrix1, cmap='plasma', aspect='auto')
         ax1.set_title("Room 1 (Bottom-left, 10x10)")
         ax1.axis('off')  # Turn off axis for better visualization
 
         # Plot Room 2 (middle-right), spanning the second column vertically
         ax2 = fig.add_subplot(gs[:, 1])  # Spanning both rows in the middle column
-        ax2.imshow(matrix2, cmap='plasma')
+        ax2.imshow(matrix2, cmap='plasma', aspect='auto')
         ax2.set_title("Room 2 (Middle, 10x20)")
         ax2.axis('off')
 
         # Plot Room 3 (top-right)
         ax3 = fig.add_subplot(gs[0, 2])
-        ax3.imshow(matrix3, cmap='plasma')
+        ax3.imshow(matrix3, cmap='plasma', aspect='auto')
         ax3.set_title("Room 3 (Top-right, 10x10)")
         ax3.axis('off')
 
