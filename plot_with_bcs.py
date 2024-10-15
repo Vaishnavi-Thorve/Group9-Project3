@@ -3,6 +3,7 @@ import numpy as np
 import scipy.sparse as sp
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 class Room:
     def __init__(self, dimension, boundary_condition, title):
@@ -67,8 +68,7 @@ class Dirichlet_Neumann:
                     sol = solve_linalg(room.boundary_mask, u, self.dx)          # might be an issue here
                     print(f'solution is {sol}')
                     if num == 0: sol_relax = sol
-                    else: sol_relax = self.omega * sol + (1 - self.omega) * self.temperature_values[i-1]
-
+                    else: sol_relax = self.omega * sol + (1 - self.omega) * self.temperature_values[i]
                     self.temperature_values[i] = sol_relax
                     temperature_grid = sol_relax
                     print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
@@ -76,6 +76,7 @@ class Dirichlet_Neumann:
 
                     self.send_data(room, temperature_grid)
                     print(f'The u received from iteration {i} is {u}')
+                else: pass
         return sol_relax
             
     def send_data(self, room, temperature_grid):
@@ -220,66 +221,122 @@ def createLatexDocument(matrix_str):
     with open(filename, 'w') as f:
         f.write(document, filename)
 
+
+def plot_rooms(apartment):
+    fig, ax = plt.subplots(figsize=(10, 6))
+    x_offset = 0  # To track the x position for placing rooms
+    y_offset = 0  # To track the y position for placing rooms
+
+    for i, room in enumerate(apartment.rooms):
+        temperature_grid = room.temperature
+        height, width = temperature_grid.shape
+
+        # Plot the room temperature as an image
+        im = ax.imshow(temperature_grid, cmap='plasma',
+                       extent=(x_offset, x_offset + width, y_offset, y_offset + height),
+                       origin='lower')
+
+        # Add a rectangle to highlight room boundaries
+        rect = patches.Rectangle((x_offset, y_offset), width, height, linewidth=1, edgecolor='black', facecolor='none')
+        ax.add_patch(rect)
+
+        # Add room title
+        ax.text(x_offset + width / 2, y_offset + height + 0.2, room.title,
+                horizontalalignment='center', verticalalignment='bottom', fontsize=10, color='black')
+
+        # # Update x_offset for next room based on adjacency (assuming linear horizontal arrangement)
+        # if i < len(apartment.rooms) - 1:
+        #     if 'right' in room.adjacent_rooms:
+        #         x_offset += width  # Move to the right for the next room
+        #     elif 'top' in room.adjacent_rooms:
+        #         y_offset += height  # Move up for the next room
+        #     # Extend this logic if rooms are adjacent in other directions as well
+
+    # Add colorbar for temperature values
+    fig.colorbar(im, ax=ax, label='Temperature')
+
+    # Set labels and title
+    ax.set_xlabel('X Position')
+    ax.set_ylabel('Y Position')
+    ax.set_title('Temperature Distribution in Apartment Rooms')
+    plt.tight_layout()
+    plt.savefig('Full_apartment.png')
+
 if __name__ == '__main__':
-    # Create rooms with boundary conditions
     dx = 1 / 3
-    Room1 = Room(dimension=[int(1/dx), int(1/dx)], boundary_condition={'left': 'heater'}, title='Room1')
-    Room2 = Room(dimension=[int(2/dx), int(1/dx)], boundary_condition={'top': 'heater', 'bottom': 'window'}, title='Room2')
-    Room3 = Room(dimension=[int(1/dx), int(1/dx)], boundary_condition={'right': 'heater'}, title='Room3')
-
-    # Define adjacent rooms
-    Room1.add_adjacent_room("right", Room2, boundary_positions={'start': 0, 'end': (int(1/dx))}, gamma_type = 'Neumann', rank = 1)
-    Room2.add_adjacent_room("left", Room1, boundary_positions={'start': (int(1/dx)), 'end': (int(2/dx))}, gamma_type = 'Dirichlet', rank = 0)
-    Room2.add_adjacent_room("right", Room3, boundary_positions={'start': 0, 'end': (int(1/dx))}, gamma_type = 'Dirichlet', rank =2)
-    Room3.add_adjacent_room("left", Room2, boundary_positions={'start': 0, 'end': (int(1/dx))}, gamma_type = 'Neumann', rank = 1)
-
-    # Create an apartment and add rooms
-    apartment = Apartment()
-    apartment.add_room(Room1)
-    apartment.add_room(Room2)
-    apartment.add_room(Room3)
-    print('Hello We are rerunning this part')
-
     # Solve the system of equations and display results
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank)
+
+    if rank == 0:
+        # Create the apartment and add rooms in rank 0
+
+        Room1 = Room(dimension=[int(1 / dx), int(1 / dx)], boundary_condition={'left': 'heater'}, title='Room1')
+        Room2 = Room(dimension=[int(2 / dx), int(1 / dx)], boundary_condition={'top': 'heater', 'bottom': 'window'},
+                     title='Room2')
+        Room3 = Room(dimension=[int(1 / dx), int(1 / dx)], boundary_condition={'right': 'heater'}, title='Room3')
+
+        # Define adjacent rooms
+        Room1.add_adjacent_room("right", Room2, boundary_positions={'start': 0, 'end': int(1 / dx)},
+                                gamma_type='Neumann', rank=1)
+        Room2.add_adjacent_room("left", Room1, boundary_positions={'start': int(1 / dx), 'end': int(2 / dx)},
+                                gamma_type='Dirichlet', rank=0)
+        Room2.add_adjacent_room("right", Room3, boundary_positions={'start': 0, 'end': int(1 / dx)},
+                                gamma_type='Dirichlet', rank=2)
+        Room3.add_adjacent_room("left", Room2, boundary_positions={'start': 0, 'end': int(1 / dx)},
+                                gamma_type='Neumann', rank=1)
+
+        # Create an apartment and add rooms
+        apartment = Apartment()
+        apartment.add_room(Room1)
+        apartment.add_room(Room2)
+        apartment.add_room(Room3)
+
+    else:
+        apartment = None
+
+    # Broadcast apartment to all ranks
+    apartment = comm.bcast(apartment, root=0)
+
+
+    solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank, 10)
     val = solver.solve()
-    plt.imshow(val, cmap='plasma')
-    plt.colorbar(label='Temperature')
-    plt.savefig('temperature.png')
-    MPI.Finalize
+    temperature_values = comm.gather(val, root=0)
+
     
     # plot_rooms(apartment)
+    if rank == 0:
+        matrix1 = temperature_values[0]  # Temperature for Room 1
+        matrix2 = temperature_values[1]  # Temperature for Room 2
+        matrix3 = temperature_values[2]  # Temperature for Room 3
 
-    matrix1 = solver.temperature_values[0]
-    matrix2 = solver.temperature_values[1]
-    matrix3 = solver.temperature_values[2]
+        # Create the figure for plotting
+        fig = plt.figure(constrained_layout=True, figsize=(30, 20))
 
-    fig = plt.figure(constrained_layout=True, figsize=(30, 20))
+        # Create a GridSpec with 2 rows and 3 columns
+        # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both)
+        gs = fig.add_gridspec(2, 3, width_ratios=[1, 2, 1], height_ratios=[1, 1])
+        print('We are plotting')
 
-    # Create a GridSpec with 2 rows and 3 columns
-    # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both)
-    gs = fig.add_gridspec(2, 3, width_ratios=[1, 2, 1], height_ratios=[1, 1])
-    print('We are plotting')
-    # Plot Room 1 (bottom-left)
-    ax1 = fig.add_subplot(gs[1, 0])
-    ax1.imshow(matrix1, cmap='plasma')
-    ax1.set_title("Room 1 (Bottom-left, 10x10)")
-    ax1.axis('off')  # Turn off axis for better visualization
+        # Plot Room 1 (bottom-left)
+        ax1 = fig.add_subplot(gs[1, 0])
+        ax1.imshow(matrix1, cmap='plasma')
+        ax1.set_title("Room 1 (Bottom-left, 10x10)")
+        ax1.axis('off')  # Turn off axis for better visualization
 
-    # Plot Room 2 (middle-right), spanning the second column vertically
-    ax2 = fig.add_subplot(gs[:, 1])  # Spanning both rows in the middle column
-    ax2.imshow(matrix2, cmap='plasma')
-    ax2.set_title("Room 2 (Middle, 10x20)")
-    ax2.axis('off')
+        # Plot Room 2 (middle-right), spanning the second column vertically
+        ax2 = fig.add_subplot(gs[:, 1])  # Spanning both rows in the middle column
+        ax2.imshow(matrix2, cmap='plasma')
+        ax2.set_title("Room 2 (Middle, 10x20)")
+        ax2.axis('off')
 
-    # Plot Room 3 (top-right)
-    ax3 = fig.add_subplot(gs[0, 2])
-    ax3.imshow(matrix3, cmap='plasma')
-    ax3.set_title("Room 3 (Top-right, 10x10)")
-    ax3.axis('off')
+        # Plot Room 3 (top-right)
+        ax3 = fig.add_subplot(gs[0, 2])
+        ax3.imshow(matrix3, cmap='plasma')
+        ax3.set_title("Room 3 (Top-right, 10x10)")
+        ax3.axis('off')
 
+        # Show the final plot
+        plt.savefig('apartment_plot.png')
 
-    # Show the final plot
-    plt.savefig(f'apartment_{rank}.png')
+    MPI.Finalize()
