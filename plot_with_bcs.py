@@ -185,7 +185,7 @@ def solve_linalg(boundary_mask, temperature_grid, dx):
     sol = sp.linalg.spsolve(A, b).reshape((n, m))
     return sol
 
-
+# save matrix A as latex document
 def matrixLatex(A):
     latex_str = '\\begin{pmatrix}\n'
     for i in range(0, len(A)):
@@ -250,5 +250,36 @@ if __name__ == '__main__':
     plt.savefig('temperature.png')
     MPI.Finalize
     
-    
+    # plot_rooms(apartment)
 
+    matrix1 = solver.temperature_values[0]
+    matrix2 = solver.temperature_values[1]
+    matrix3 = solver.temperature_values[2]
+
+    fig = plt.figure(constrained_layout=True, figsize=(30, 20))
+
+    # Create a GridSpec with 2 rows and 3 columns
+    # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both)
+    gs = fig.add_gridspec(2, 3, width_ratios=[1, 2, 1], height_ratios=[1, 1])
+    print('We are plotting')
+    # Plot Room 1 (bottom-left)
+    ax1 = fig.add_subplot(gs[1, 0])
+    ax1.imshow(matrix1, cmap='plasma')
+    ax1.set_title("Room 1 (Bottom-left, 10x10)")
+    ax1.axis('off')  # Turn off axis for better visualization
+
+    # Plot Room 2 (middle-right), spanning the second column vertically
+    ax2 = fig.add_subplot(gs[:, 1])  # Spanning both rows in the middle column
+    ax2.imshow(matrix2, cmap='plasma')
+    ax2.set_title("Room 2 (Middle, 10x20)")
+    ax2.axis('off')
+
+    # Plot Room 3 (top-right)
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.imshow(matrix3, cmap='plasma')
+    ax3.set_title("Room 3 (Top-right, 10x10)")
+    ax3.axis('off')
+
+
+    # Show the final plot
+    plt.savefig(f'apartment_{rank}.png')
