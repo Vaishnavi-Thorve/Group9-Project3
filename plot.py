@@ -230,24 +230,41 @@ def matrixLatex(A):
     latex_str += '\\end{pmatrix}'
     return latex_str
 
-def createLatexDocument(matrix_str):
+def vectorLatex(b):
+    latex_str = '\\begin{pmatrix}\n'
+    e = '\\begin{pmatrix}\n'
+    for i in range(0, len(b)):
+        if i != len(b)-1:
+            latex_str += str(b[i]) + ' \\\\\n '
+            e += 'e' + str(i) + ' \\\\\n '
+        else:
+            latex_str += str(b[i])
+            e += 'e' + str(i)
+    latex_str += '\\end{pmatrix}'
+    e += '\\end{pmatrix}'
+    return latex_str, e
+
+def createLatexDocument(A, b, roomNum):
+    matrix_str = matrixLatex(A)
+    vector_str, e = vectorLatex(b)
+    
     document = r'''
     \documentclass{article}
     \usepackage{amsmath}  % Required for matrix environments
     \begin{document}
 
-    Here is the matrix:
+    Here is the matrix for the ''' + roomNum + r''' room (at last iteration):
 
     \[
-    ''' + matrix_str + r'''
+    ''' + matrix_str + e + '=' + vector_str + r'''
     \]
 
     \end{document}
     '''
-    filename = r'A_matrix_output.tex'
+    filename = r'.\latex\A_matrix_output_' + roomNum + r'.tex'
 
     with open(filename, 'w') as f:
-        f.write(document, filename)
+        f.write(document)
 
 
 def plot_rooms(apartment):
@@ -359,25 +376,28 @@ if __name__ == '__main__':
 
         # Plot Room 1 (bottom-left)
         ax1 = fig.add_subplot(gs[2:, :2])
-        ax1.imshow(matrix1, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img1 = ax1.imshow(matrix1, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax1.axis('off')  # Turn off axis for better visualization
 
         # Plot Room 2 (middle-right), spanning the second column vertically
         ax2 = fig.add_subplot(gs[:, 2:4])  # Spanning both rows in the middle column
-        ax2.imshow(matrix2, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img2 = ax2.imshow(matrix2, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax2.axis('off')
 
         # Plot Room 3 (top-right)
         ax3 = fig.add_subplot(gs[:2, 4:])
-        ax3.imshow(matrix3, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img3 = ax3.imshow(matrix3, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax3.axis('off')
 
         # Plot Room 4 (below Room 3, half the width, square)
         ax4 = fig.add_subplot(gs[2, 4:5])
-        ax4.imshow(matrix4, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img4 = ax4.imshow(matrix4, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax4.axis('off')
 
-
+        # Add colorbar associated with one of the images (for the entire figure)
+        cbar = fig.colorbar(img1, ax=[ax1, ax2, ax3, ax4], orientation='vertical', fraction=0.02, pad=0.04)
+        cbar.set_label('Temperature')
+    
         # Show the final plot
         plt.savefig('apartment_plot.png')
 
