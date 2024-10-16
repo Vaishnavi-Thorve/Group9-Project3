@@ -267,47 +267,6 @@ def createLatexDocument(A, b, roomNum):
         f.write(document)
 
 
-def plot_rooms(apartment):
-    fig, ax = plt.subplots(figsize=(10, 6))
-    x_offset = 0  # To track the x position for placing rooms
-    y_offset = 0  # To track the y position for placing rooms
-
-    for i, room in enumerate(apartment.rooms):
-        temperature_grid = room.temperature
-        height, width = temperature_grid.shape
-
-        # Plot the room temperature as an image
-        im = ax.imshow(temperature_grid, cmap='plasma',
-                       extent=(x_offset, x_offset + width, y_offset, y_offset + height),
-                       origin='lower')
-
-        # Add a rectangle to highlight room boundaries
-        rect = patches.Rectangle((x_offset, y_offset), width, height, linewidth=1, edgecolor='black', facecolor='none')
-        ax.add_patch(rect)
-
-        # Add room title
-        ax.text(x_offset + width / 2, y_offset + height + 0.2, room.title,
-                horizontalalignment='center', verticalalignment='bottom', fontsize=10, color='black')
-
-        # # Update x_offset for next room based on adjacency (assuming linear horizontal arrangement)
-        # if i < len(apartment.rooms) - 1:
-        #     if 'right' in room.adjacent_rooms:
-        #         x_offset += width  # Move to the right for the next room
-        #     elif 'top' in room.adjacent_rooms:
-        #         y_offset += height  # Move up for the next room
-        #     # Extend this logic if rooms are adjacent in other directions as well
-
-    # Add colorbar for temperature values
-    fig.colorbar(im, ax=ax, label='Temperature')
-
-    # Set labels and title
-    ax.set_xlabel('X Position')
-    ax.set_ylabel('Y Position')
-    ax.set_title('Temperature Distribution in Apartment Rooms')
-    plt.tight_layout()
-    plt.savefig('Full_apartment.png')
-
-
 if __name__ == '__main__':
     dx = 1 / 20
     # Solve the system of equations and display results
@@ -353,8 +312,7 @@ if __name__ == '__main__':
     val = solver.solve()
     temperature_values = comm.gather(val, root=0)
     print('done '+str(rank))
-    
-    # plot_rooms(apartment)
+
     if rank == 0:
 
         matrix1 = temperature_values[0]  # Temperature for Room 1
@@ -363,7 +321,7 @@ if __name__ == '__main__':
         matrix4 = temperature_values[3]  # Temperature for Room 4
 
         # Create the figure for plotting
-        fig = plt.figure(constrained_layout=True, figsize=(30, 20))
+        fig = plt.figure(constrained_layout=True, figsize=(30, 18.3))
 
         # Create a GridSpec with 3 rows and 3 columns
         # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both), Room 4 (below Room 3)
@@ -401,7 +359,5 @@ if __name__ == '__main__':
     
         # Show the final plot
         plt.savefig('apartment_plot.png')
-
-    
 
     MPI.Finalize()
