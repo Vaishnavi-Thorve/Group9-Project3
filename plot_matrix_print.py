@@ -376,29 +376,29 @@ if __name__ == '__main__':
 
         # Plot Room 1 (bottom-left)
         ax1 = fig.add_subplot(gs[2:, :2])
-        ax1.imshow(matrix1, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img1 = ax1.imshow(matrix1, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax1.axis('off')  # Turn off axis for better visualization
 
         # Plot Room 2 (middle-right), spanning the second column vertically
         ax2 = fig.add_subplot(gs[:, 2:4])  # Spanning both rows in the middle column
-        ax2.imshow(matrix2, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img2 = ax2.imshow(matrix2, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax2.axis('off')
 
         # Plot Room 3 (top-right)
         ax3 = fig.add_subplot(gs[:2, 4:])
-        ax3.imshow(matrix3, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img3 = ax3.imshow(matrix3, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax3.axis('off')
 
         # Plot Room 4 (below Room 3, half the width, square)
         ax4 = fig.add_subplot(gs[2, 4:5])
-        ax4.imshow(matrix4, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img4 = ax4.imshow(matrix4, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
         ax4.axis('off')
 
-
+        # Add colorbar associated with one of the images (for the entire figure)
+        cbar = fig.colorbar(img1, ax=[ax1, ax2, ax3, ax4], orientation='vertical', fraction=0.02, pad=0.04)
+        cbar.set_label('Temperature')
+    
         # Show the final plot
         plt.savefig('apartment_plot.png')
-
-    
-    onePrint = Dirichlet_Neumann(Room1, 1/3, comm, rank)
 
     MPI.Finalize()
