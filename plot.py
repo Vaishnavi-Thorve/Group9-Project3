@@ -17,8 +17,31 @@ class Room:
 
         self.apply_boundary_conditions()  # Apply boundary conditions during initialization
 
-    def add_adjacent_room(self, direction, room, boundary_positions, gamma_type:None, rank: None):
-        self.adjacent_rooms[direction] = {'room': room, 'boundary_positions': boundary_positions, 'gamma_type': gamma_type, 'rank': rank}
+    def add_adjacent_room(self, direction, room, boundary_positions, gamma_type=None, rank=None):
+        # Check if the direction key already exists
+        if direction in self.adjacent_rooms:
+            # Find a new key with an incrementing suffix (_2, _3, etc.)
+            suffix = 2
+            new_direction = f"{direction}_{suffix}"
+            while new_direction in self.adjacent_rooms:
+                suffix += 1
+                new_direction = f"{direction}_{suffix}"
+
+            # Add the new room under the unique key
+            self.adjacent_rooms[new_direction] = {
+                'room': room,
+                'boundary_positions': boundary_positions,
+                'gamma_type': gamma_type,
+                'rank': rank
+            }
+        else:
+            # Add the first room with the original direction key
+            self.adjacent_rooms[direction] = {
+                'room': room,
+                'boundary_positions': boundary_positions,
+                'gamma_type': gamma_type,
+                'rank': rank
+            }
 
     def apply_boundary_conditions(self):
         for i, condition in self.boundary_condition.items():
@@ -72,15 +95,16 @@ class Dirichlet_Neumann:
                     self.temperature_values[i] = sol_relax
                     temperature_grid = sol_relax
                     print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
-                    print(f'The sol_relax for iteration {num} is {sol_relax}')
+                    # print(f'The sol_relax for iteration {num} is {sol_relax}')
 
                     self.send_data(room, temperature_grid)
-                    print(f'The u received from iteration {i} is {u}')
+                    print(f'The u received from rank {i} is {u}')
                 else: pass
-        return sol_relax
+        return locals().get('sol_relax', None)
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
+            print(direction, info)
             gamma_type = info['gamma_type']
             adjacent_rank = info['rank']
             boundary_positions = info['boundary_positions']
@@ -88,16 +112,18 @@ class Dirichlet_Neumann:
             end = boundary_positions['end']
             #print(f'The adjacent_rank received in the send data is: {adjacent_rank}')
 
-            if direction == 'right':
-                print(f'Rank {self.rank} sending right to rank {adjacent_rank}')
-                print(f'start:{start}, end:{end}')
-                print(f'The elements sent to right with temperature_grid is: {temperature_grid[start:end, -2:]}')
+            if direction.startswith('right'):
+                # print(f'Rank {self.rank} sending right to rank {adjacent_rank}')
+                # print(f'start:{start}, end:{end}')
+                # print(f'The elements sent to right with temperature_grid is: {temperature_grid[start:end, -2:]}')
                 
                 self.comm.send(temperature_grid[start:end, -2:], dest = adjacent_rank,  tag = 100 + self.rank)
-            if direction == 'left':
-                print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
-                print(f'start:{start}, end:{end}')
-                print(f'The elements sent to left with temperature_grid is: {temperature_grid[start:end, :1]}')
+                print(f'{rank}, sending to {adjacent_rank}, with tag {100+self.rank}')
+
+            if direction.startswith('left'):
+                # print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
+                # print(f'start:{start}, end:{end}')
+                # print(f'The elements sent to left with temperature_grid is: {temperature_grid[start:end, :1]}')
                 self.comm.send(temperature_grid[start:end, :1], dest = adjacent_rank, tag = 100 + self.rank)
                 
     def receive_data(self, room, temperature_grid, dx):
@@ -309,7 +335,7 @@ if __name__ == '__main__':
     solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank, 10)
     val = solver.solve()
     temperature_values = comm.gather(val, root=0)
-
+    print('done '+str(rank))
     
     # plot_rooms(apartment)
     if rank == 0:

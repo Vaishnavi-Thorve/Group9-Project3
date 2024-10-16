@@ -261,7 +261,7 @@ def plot_rooms(apartment):
     plt.savefig('Full_apartment.png')
 
 if __name__ == '__main__':
-    dx = 1 / 40
+    dx = 1 / 50
     # Solve the system of equations and display results
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -297,7 +297,7 @@ if __name__ == '__main__':
     apartment = comm.bcast(apartment, root=0)
 
 
-    solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank, 10)
+    solver = Dirichlet_Neumann(apartment.rooms, dx, comm, rank, 15)
     val = solver.solve()
     temperature_values = comm.gather(val, root=0)
 
@@ -318,19 +318,19 @@ if __name__ == '__main__':
 
         # Plot Room 1 (bottom-left)
         ax1 = fig.add_subplot(gs[1, 0])
-        ax1.imshow(matrix1, cmap='plasma', aspect='auto')
+        ax1.imshow(matrix1, cmap='Plasma', aspect='auto')
         ax1.set_title("Room 1 (Bottom-left, 10x10)")
         ax1.axis('off')  # Turn off axis for better visualization
 
         # Plot Room 2 (middle-right), spanning the second column vertically
         ax2 = fig.add_subplot(gs[:, 1])  # Spanning both rows in the middle column
-        ax2.imshow(matrix2, cmap='plasma', aspect='auto')
+        ax2.imshow(matrix2, cmap='Plasma', aspect='auto')
         ax2.set_title("Room 2 (Middle, 10x20)")
         ax2.axis('off')
 
         # Plot Room 3 (top-right)
         ax3 = fig.add_subplot(gs[0, 2])
-        ax3.imshow(matrix3, cmap='plasma', aspect='auto')
+        ax3.imshow(matrix3, cmap='Plasma', aspect='auto')
         ax3.set_title("Room 3 (Top-right, 10x10)")
         ax3.axis('off')
 
