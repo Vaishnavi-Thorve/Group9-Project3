@@ -396,7 +396,8 @@ if __name__ == '__main__':
 
         # Add colorbar associated with one of the images (for the entire figure)
         cbar = fig.colorbar(img1, ax=[ax1, ax2, ax3, ax4], orientation='vertical', fraction=0.02, pad=0.04)
-        cbar.set_label('Temperature')
+        cbar.set_label('Temperature', fontsize=18)  # Set label font size
+        cbar.ax.tick_params(labelsize=14)  # Set tick font size for the colorbar
     
         # Show the final plot
         plt.savefig('apartment_plot.png')
