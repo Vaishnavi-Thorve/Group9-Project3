@@ -58,7 +58,7 @@ class Room:
                     self.boundary_mask[0, :] = boundary_temperature  # Apply to the top boundary (1st row)
                 case 'bottom':
                     self.boundary_mask[-1, :] = boundary_temperature  # Apply to the bottom boundary (last row)
-        print(self.boundary_mask)
+        # print(self.boundary_mask)
 
 class Apartment:
     def __init__(self):
@@ -80,31 +80,31 @@ class Dirichlet_Neumann:
 
     def solve(self):
         for num in range (self.num_iterations):
-            print(f'\nIteration: {num}')
+            # print(f'\nIteration: {num}')
             for i, room in enumerate(self.rooms):
                 if self.rank == i:
                     temperature_grid = self.temperature_values[i]
-                    print(f'\nSolving for room "{room.title}" with rank {self.rank}')
+                    # print(f'\nSolving for room "{room.title}" with rank {self.rank}')
                     if num != 0:  u = self.receive_data(room, temperature_grid, self.dx)
                     else: u = temperature_grid
 
                     sol = solve_linalg(room.boundary_mask, u, self.dx)          # might be an issue here
-                    print(f'solution is {sol}')
+                    # print(f'solution is {sol}')
                     if num == 0: sol_relax = sol
                     else: sol_relax = self.omega * sol + (1 - self.omega) * self.temperature_values[i]
                     self.temperature_values[i] = sol_relax
                     temperature_grid = sol_relax
-                    print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
+                    # print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
                     # print(f'The sol_relax for iteration {num} is {sol_relax}')
 
                     self.send_data(room, temperature_grid)
-                    print(f'The u received from rank {i} is {u}')
+                    # print(f'The u received from rank {i} is {u}')
                 else: pass
         return locals().get('sol_relax', None)
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
-            print(direction, info)
+            # print(direction, info)
             gamma_type = info['gamma_type']
             adjacent_rank = info['rank']
             boundary_positions = info['boundary_positions']
@@ -118,7 +118,7 @@ class Dirichlet_Neumann:
                 # print(f'The elements sent to right with temperature_grid is: {temperature_grid[start:end, -2:]}')
                 
                 self.comm.send(temperature_grid[start:end, -2:], dest = adjacent_rank,  tag = 100 + self.rank)
-                print(f'{rank}, sending to {adjacent_rank}, with tag {100+self.rank}')
+                # print(f'{rank}, sending to {adjacent_rank}, with tag {100+self.rank}')
 
             if direction.startswith('left'):
                 # print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
@@ -133,36 +133,28 @@ class Dirichlet_Neumann:
             boundary_positions = info['boundary_positions']
             start = boundary_positions['start']
             end = boundary_positions['end']
-            print(f'Rank {self.rank} waiting to receive from rank {adjacent_rank} on direction {direction}')
 
             try:
                 sol_new = self.comm.recv(source=adjacent_rank, tag=100 + adjacent_rank)
-                print(f'The elements in sol_new of recv data is: {sol_new}')
-                print(f"Rank {self.rank} received data from rank {adjacent_rank}")
+                # print(f'The elements in sol_new of recv data is: {sol_new}')
+                # print(f"Rank {self.rank} received data from rank {adjacent_rank}")
             except Exception as e:
                 print(f"Error receiving data on rank {self.rank}: {e}")
             
             if gamma_type == 'Dirichlet':
-                if direction == 'right':
+                if direction.startswith('right'):
                     room.boundary_mask[start+1:end+1, -1] = sol_new[:, 0]
 
-                elif direction == 'left':
+                elif direction.startswith('left'):
                     room.boundary_mask[start+1:end+1, 0] = sol_new[:, -1]
 
             if gamma_type == 'Neumann':
-                if direction == 'right':
+                if direction.startswith('right'):
                     flux = (sol_new[:, -1] - sol_new[:, 0] )/ dx
-                    print(f'sol:{sol_new}')
-                    print(f'flux:{flux}')
-                    print(f'boundary:{room.boundary_mask[start+1:end+1, -1]}')
-                    print(f'temp:{temperature_grid[start:end,-1]}')
                     room.boundary_mask[start+1:end+1, -1] = temperature_grid[start:end,-1] + flux * dx
 
-                elif direction == 'left':
+                elif direction.startswith('left'):
                     flux = (sol_new[:, 0] - sol_new[:, -1])/ dx
-                    print(f'flux:{flux}')
-                    print(f'boundary:{room.boundary_mask[start+1:end+1, -1]}')
-                    print(f'temp:{temperature_grid[start:end,-1]}')
                     room.boundary_mask[start+1:end+1, 0] = temperature_grid[start:end, 0] + flux * dx
                                                             
         return temperature_grid # Should we be returning this
@@ -207,7 +199,7 @@ def get_index(j, k, Ny):
 
 def solve_linalg(boundary_mask, temperature_grid, dx):
     shape = temperature_grid.shape
-    print(f'Shape of the temperature_grid is: {shape}')
+    # print(f'Shape of the temperature_grid is: {shape}')
     n, m = shape
 
     A, b = build_linalg(boundary_mask, n, m, dx)
@@ -268,7 +260,7 @@ def createLatexDocument(A, b, roomNum):
 
 
 if __name__ == '__main__':
-    dx = 1 / 20
+    dx = 1 / 50
     # Solve the system of equations and display results
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
