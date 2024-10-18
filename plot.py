@@ -80,52 +80,35 @@ class Dirichlet_Neumann:
 
     def solve(self):
         for num in range (self.num_iterations):
-            # print(f'\nIteration: {num}')
             for i, room in enumerate(self.rooms):
                 if self.rank == i:
                     temperature_grid = self.temperature_values[i]
-                    # print(f'\nSolving for room "{room.title}" with rank {self.rank}')
                     if num != 0:  u = self.receive_data(room, temperature_grid, self.dx)
                     else: u = temperature_grid
 
-                    sol = solve_linalg(room.boundary_mask, u, self.dx)          # might be an issue here
-                    # print(f'solution is {sol}')
+                    sol = solve_linalg(room.boundary_mask, u, self.dx)
                     if num == 0: sol_relax = sol
                     else: sol_relax = self.omega * sol + (1 - self.omega) * self.temperature_values[i]
                     self.temperature_values[i] = sol_relax
                     temperature_grid = sol_relax
-                    # print(f'Shape of the temperature_grid is: {temperature_grid.shape}')
-                    # print(f'The sol_relax for iteration {num} is {sol_relax}')
-
                     self.send_data(room, temperature_grid)
-                    # print(f'The u received from rank {i} is {u}')
+
                 else: pass
         return locals().get('sol_relax', None)
             
     def send_data(self, room, temperature_grid):
         for direction, info in room.adjacent_rooms.items():
-            # print(direction, info)
-            gamma_type = info['gamma_type']
             adjacent_rank = info['rank']
             boundary_positions = info['boundary_positions']
             start = boundary_positions['start']
             end = boundary_positions['end']
-            #print(f'The adjacent_rank received in the send data is: {adjacent_rank}')
 
             if direction.startswith('right'):
-                # print(f'Rank {self.rank} sending right to rank {adjacent_rank}')
-                # print(f'start:{start}, end:{end}')
-                # print(f'The elements sent to right with temperature_grid is: {temperature_grid[start:end, -2:]}')
-                
                 self.comm.send(temperature_grid[start:end, -2:], dest = adjacent_rank,  tag = 100 + self.rank)
-                # print(f'{rank}, sending to {adjacent_rank}, with tag {100+self.rank}')
 
             if direction.startswith('left'):
-                # print(f'Rank {self.rank} sending left to rank {adjacent_rank}')
-                # print(f'start:{start}, end:{end}')
-                # print(f'The elements sent to left with temperature_grid is: {temperature_grid[start:end, :1]}')
-                self.comm.send(temperature_grid[start:end, :1], dest = adjacent_rank, tag = 100 + self.rank)
-                
+                self.comm.send(temperature_grid[start:end, :2], dest = adjacent_rank, tag = 100 + self.rank)
+
     def receive_data(self, room, temperature_grid, dx):
         for direction, info in room.adjacent_rooms.items():
             gamma_type = info['gamma_type']
@@ -136,8 +119,7 @@ class Dirichlet_Neumann:
 
             try:
                 sol_new = self.comm.recv(source=adjacent_rank, tag=100 + adjacent_rank)
-                # print(f'The elements in sol_new of recv data is: {sol_new}')
-                # print(f"Rank {self.rank} received data from rank {adjacent_rank}")
+
             except Exception as e:
                 print(f"Error receiving data on rank {self.rank}: {e}")
             
@@ -150,22 +132,20 @@ class Dirichlet_Neumann:
 
             if gamma_type == 'Neumann':
                 if direction.startswith('right'):
-                    flux = (sol_new[:, -1] - sol_new[:, 0] )/ dx
+                    flux = (sol_new[:, -1] - sol_new[:, 0])/ dx
                     room.boundary_mask[start+1:end+1, -1] = temperature_grid[start:end,-1] + flux * dx
 
                 elif direction.startswith('left'):
                     flux = (sol_new[:, 0] - sol_new[:, -1])/ dx
                     room.boundary_mask[start+1:end+1, 0] = temperature_grid[start:end, 0] + flux * dx
-                                                            
-        return temperature_grid # Should we be returning this
+
+        return temperature_grid
 
 
 def build_linalg(boundary_mask, Nx, Ny, dx):
     N = Nx * Ny  # Total number of elements
-    coeff = 1 / dx**2
     A = []
     b = []
-    
 
     # Create a mask for the boundary
 
@@ -192,7 +172,7 @@ def build_linalg(boundary_mask, Nx, Ny, dx):
             A.append(row)
             b.append(rhs)
    
-    return csr_matrix(np.array(A)), np.array(b) # Maybe we need to add the coefficient stuff from the previous implementation
+    return csr_matrix(np.array(A)), np.array(b)
 
 def get_index(j, k, Ny):
     return j * Ny + k
@@ -267,7 +247,6 @@ if __name__ == '__main__':
 
     if rank == 0:
         # Create the apartment and add rooms in rank 0
-
         Room1 = Room(dimension=[int(1 / dx), int(1 / dx)], boundary_condition={'left': 'heater'}, title='Room1')
         Room2 = Room(dimension=[int(2 / dx), int(1 / dx)], boundary_condition={'top': 'heater', 'bottom': 'window'},
                      title='Room2')
@@ -317,7 +296,9 @@ if __name__ == '__main__':
 
         # Create a GridSpec with 3 rows and 3 columns
         # Room 1 (bottom-left), Room 3 (top-right), Room 2 (middle connecting both), Room 4 (below Room 3)
-        gs = fig.add_gridspec(4, 6, wspace=0, hspace=0)
+        gs = fig.add_gridspec(4, 6)
+        fig.set_constrained_layout_pads(w_pad=0, h_pad=0, wspace=0, hspace=0)
+        # gs.tight_layout(fig, pad=0)
         print(f'We are plotting, {gs}')
 
         # Set a consistent color scale for all rooms by determining vmin and vmax from all matrices
@@ -326,29 +307,29 @@ if __name__ == '__main__':
 
         # Plot Room 1 (bottom-left)
         ax1 = fig.add_subplot(gs[2:, :2])
-        img1 = ax1.imshow(matrix1, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
-        ax1.axis('off')  # Turn off axis for better visualization
+        img1 = ax1.imshow(matrix1, cmap='inferno', aspect='auto', vmin=vmin, vmax=vmax)
+        ax1.axis('off')
 
         # Plot Room 2 (middle-right), spanning the second column vertically
         ax2 = fig.add_subplot(gs[:, 2:4])  # Spanning both rows in the middle column
-        img2 = ax2.imshow(matrix2, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img2 = ax2.imshow(matrix2, cmap='inferno', aspect='auto', vmin=vmin, vmax=vmax)
         ax2.axis('off')
 
         # Plot Room 3 (top-right)
         ax3 = fig.add_subplot(gs[:2, 4:])
-        img3 = ax3.imshow(matrix3, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img3 = ax3.imshow(matrix3, cmap='inferno', aspect='auto', vmin=vmin, vmax=vmax)
         ax3.axis('off')
 
         # Plot Room 4 (below Room 3, half the width, square)
         ax4 = fig.add_subplot(gs[2, 4:5])
-        img4 = ax4.imshow(matrix4, cmap='plasma', aspect='equal', vmin=vmin, vmax=vmax)
+        img4 = ax4.imshow(matrix4, cmap='inferno', aspect='auto', vmin=vmin, vmax=vmax)
         ax4.axis('off')
 
         # Add colorbar associated with one of the images (for the entire figure)
         cbar = fig.colorbar(img1, ax=[ax1, ax2, ax3, ax4], orientation='vertical', fraction=0.02, pad=0.04)
         cbar.set_label('Temperature', fontsize=18)  # Set label font size
         cbar.ax.tick_params(labelsize=14)  # Set tick font size for the colorbar
-    
+
         # Show the final plot
         plt.savefig('apartment_plot.png')
 
